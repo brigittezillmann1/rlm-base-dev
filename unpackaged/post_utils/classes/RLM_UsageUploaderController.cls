@@ -633,4 +633,318 @@ public with sharing class RLM_UsageUploaderController {
 
         return wrappers;
     }
+
+    // ─── Monthly Usage Summary ───────────────────────────────────────────
+
+    /**
+     * Wrapper: one Usage Resource with its month-by-month usage rows.
+     */
+    public class MonthlyUsageResourceWrapper {
+        @AuraEnabled public Id resourceId;
+        @AuraEnabled public String resourceName;
+        @AuraEnabled public String productName; // entitled Product for this resource
+        @AuraEnabled public String uomName;
+        @AuraEnabled public List<MonthlyUsageRow> months;
+    }
+
+    /**
+     * Wrapper: usage figures for a single month within a Usage Resource.
+     * Uses the "total available" (running balance) model:
+     *   available   = carried-in unused units + grants issued this month
+     *   consumed    = effective consumed units this month (from UsageSummary)
+     *   carriedOver = available - consumed, floored at 0; becomes next month's carried-in
+     */
+    public class MonthlyUsageRow {
+        @AuraEnabled public String monthLabel;    // e.g. "May 2026"
+        @AuraEnabled public Integer monthKey;     // yyyymm, for stable client-side ordering
+        @AuraEnabled public Decimal available;    // Total available = carried-in + grants issued this month
+        @AuraEnabled public Decimal consumed;     // Effective consumed units this month
+        @AuraEnabled public Decimal carriedOver;  // Unused units carried to the next month
+    }
+
+    /**
+     * One "vintage" of granted units in the rollover queue: the units still unused from a grant
+     * issued some number of cycles ago. Carry-over is modeled as a queue of these batches so the
+     * rollover policy's cap (MaximumRolloverCount) and expiry (ShouldAllowRolloverExpiry) can be
+     * applied per-vintage — oldest units are consumed and expire first.
+     */
+    private class GrantBatch {
+        Decimal units;      // unused units remaining from this grant
+        Integer rollovers;  // number of cycle boundaries this batch has already crossed
+        GrantBatch(Decimal units) {
+            this.units = units;
+            this.rollovers = 0;
+        }
+    }
+
+    private static final List<String> MONTH_ABBR = new List<String>{
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    };
+
+    /**
+     * Returns month-by-month usage for an Asset, one entry per Usage Resource, from the first
+     * month with activity through the current month.
+     *
+     * Grants: derived from the entitlement definition, not from materialized buckets. A
+     * TransactionUsageEntitlement with a Month validity period refreshes EntitlementQuantity every
+     * month, so each month within the entitlement's active window contributes that quantity as a
+     * grant (summed per resource when multiple entitlements target the same resource). Deriving from
+     * the definition means grants still show for months whose period buckets have not yet been
+     * generated in the org. The entitlement's active window (first month → last month) is taken from
+     * its UsageEntitlementBucket date range.
+     *
+     * Consumption: effective consumed units come from UsageSummary (ConsumptionUnits), which holds
+     * a row per billing period per grant — the authoritative month-by-month history.
+     *
+     * Running model per resource: available = carried-in unused + grant this month;
+     * carriedOver = available - consumed (floored at 0) and rolls into the next month's carried-in.
+     * Months with no grant and no consumption are still rendered so the series is contiguous.
+     */
+    @AuraEnabled(cacheable=true)
+    public static List<MonthlyUsageResourceWrapper> getMonthlyUsageForAsset(Id assetId) {
+        // Entitlements for this asset — entitled product, the recurring monthly grant amount,
+        // and the rollover policy that governs how unused units carry forward.
+        List<TransactionUsageEntitlement> tues = [
+            SELECT Id, UsageResourceId, ProductId, Product.Name,
+                   EntitlementQuantity, ValidityPeriodUnit, ValidityPeriodTerm,
+                   UsageGrantRolloverPolicyId
+            FROM TransactionUsageEntitlement
+            WHERE AssetId = :assetId
+        ];
+
+        if (tues.isEmpty()) {
+            return new List<MonthlyUsageResourceWrapper>();
+        }
+
+        Set<Id> usageResourceIds = new Set<Id>();
+        // Entitled product name per usage resource (first non-null wins)
+        Map<Id, String> productByResource = new Map<Id, String>();
+        // Recurring monthly grant per resource: entitlements with a Month validity period refresh
+        // EntitlementQuantity every month. Summed when multiple entitlements target one resource.
+        Map<Id, Decimal> monthlyGrantByResource = new Map<Id, Decimal>();
+        // Rollover policy per resource (first non-null wins) and all policy ids to look up.
+        Map<Id, Id> rolloverPolicyByResource = new Map<Id, Id>();
+        Set<Id> rolloverPolicyIds = new Set<Id>();
+        for (TransactionUsageEntitlement tue : tues) {
+            if (tue.UsageResourceId == null) {
+                continue;
+            }
+            usageResourceIds.add(tue.UsageResourceId);
+            if (!productByResource.containsKey(tue.UsageResourceId) && tue.Product != null) {
+                productByResource.put(tue.UsageResourceId, tue.Product.Name);
+            }
+            if (tue.EntitlementQuantity != null && tue.ValidityPeriodUnit == 'Month') {
+                Decimal cur = monthlyGrantByResource.containsKey(tue.UsageResourceId)
+                    ? monthlyGrantByResource.get(tue.UsageResourceId)
+                    : 0;
+                monthlyGrantByResource.put(tue.UsageResourceId, cur + tue.EntitlementQuantity);
+            }
+            if (tue.UsageGrantRolloverPolicyId != null
+                && !rolloverPolicyByResource.containsKey(tue.UsageResourceId)) {
+                rolloverPolicyByResource.put(tue.UsageResourceId, tue.UsageGrantRolloverPolicyId);
+                rolloverPolicyIds.add(tue.UsageGrantRolloverPolicyId);
+            }
+        }
+
+        // Rollover policy settings, keyed by policy id.
+        Map<Id, UsageGrantRolloverPolicy> rolloverPolicies = new Map<Id, UsageGrantRolloverPolicy>(
+            [
+                SELECT Id, IsRolloverAllowed, ShouldAllowRolloverExpiry, MaximumRolloverCount
+                FROM UsageGrantRolloverPolicy
+                WHERE Id IN :rolloverPolicyIds
+            ]
+        );
+
+        // Usage Resource names
+        Map<Id, String> resourceNames = new Map<Id, String>();
+        for (UsageResource ur : [
+            SELECT Id, Name FROM UsageResource WHERE Id IN :usageResourceIds
+        ]) {
+            resourceNames.put(ur.Id, ur.Name);
+        }
+
+        // Grant validity window per resource (first month → last month), from the entitlement's
+        // buckets. The monthly grant applies to every month inside this window.
+        Map<Id, Integer> windowStartByRes = new Map<Id, Integer>();
+        Map<Id, Integer> windowEndByRes = new Map<Id, Integer>();
+        for (UsageEntitlementBucket b : [
+            SELECT UsageResourceId, EffectiveStartDateTime, EffectiveEndDateTime
+            FROM UsageEntitlementBucket
+            WHERE TransactionUsageEntitlement.AssetId = :assetId
+              AND EffectiveStartDateTime != null
+              AND EffectiveEndDateTime != null
+        ]) {
+            Id resId = b.UsageResourceId;
+            if (resId == null) {
+                continue;
+            }
+            Integer sKey = (b.EffectiveStartDateTime.year() * 100) + b.EffectiveStartDateTime.month();
+            Integer eKey = (b.EffectiveEndDateTime.year() * 100) + b.EffectiveEndDateTime.month();
+            if (!windowStartByRes.containsKey(resId) || sKey < windowStartByRes.get(resId)) {
+                windowStartByRes.put(resId, sKey);
+            }
+            if (!windowEndByRes.containsKey(resId) || eKey > windowEndByRes.get(resId)) {
+                windowEndByRes.put(resId, eKey);
+            }
+        }
+
+        // Effective consumed units per resource per month, from UsageSummary.
+        Map<Id, Map<Integer, Decimal>> consumedByResMonth = new Map<Id, Map<Integer, Decimal>>();
+        Map<Id, String> uomByResource = new Map<Id, String>();
+        for (UsageSummary us : [
+            SELECT UsageResourceId, StartDateTime, ConsumptionUnits, Uom.Name
+            FROM UsageSummary
+            WHERE AssetId = :assetId
+              AND StartDateTime != null
+              AND UsageResourceId IN :usageResourceIds
+        ]) {
+            Id resId = us.UsageResourceId;
+            Integer monthKey = (us.StartDateTime.year() * 100) + us.StartDateTime.month();
+            if (!consumedByResMonth.containsKey(resId)) {
+                consumedByResMonth.put(resId, new Map<Integer, Decimal>());
+            }
+            Map<Integer, Decimal> mm = consumedByResMonth.get(resId);
+            mm.put(monthKey, (mm.containsKey(monthKey) ? mm.get(monthKey) : 0)
+                + (us.ConsumptionUnits != null ? us.ConsumptionUnits : 0));
+            if (us.Uom != null && !uomByResource.containsKey(resId)) {
+                uomByResource.put(resId, us.Uom.Name);
+            }
+        }
+
+        // Every resource that has a grant entitlement or consumption
+        Set<Id> allResourceIds = new Set<Id>();
+        allResourceIds.addAll(monthlyGrantByResource.keySet());
+        allResourceIds.addAll(consumedByResMonth.keySet());
+        if (allResourceIds.isEmpty()) {
+            return new List<MonthlyUsageResourceWrapper>();
+        }
+
+        Integer currentYear = Date.today().year();
+        Integer currentMonth = Date.today().month();
+        Integer currentKey = (currentYear * 100) + currentMonth;
+
+        List<MonthlyUsageResourceWrapper> result = new List<MonthlyUsageResourceWrapper>();
+        for (Id resId : allResourceIds) {
+            Decimal monthlyGrant = monthlyGrantByResource.containsKey(resId)
+                ? monthlyGrantByResource.get(resId)
+                : 0;
+            Map<Integer, Decimal> consumed = consumedByResMonth.containsKey(resId)
+                ? consumedByResMonth.get(resId)
+                : new Map<Integer, Decimal>();
+            Integer windowStart = windowStartByRes.get(resId); // null if no buckets
+            Integer windowEnd = windowEndByRes.get(resId); // null if no buckets
+
+            // Rollover policy for this resource. When no policy is configured, default to
+            // "roll over indefinitely" (allowed, no cap, no expiry).
+            Boolean rolloverAllowed = true;
+            Boolean allowExpiry = false;
+            Integer maxRollover = null;
+            Id policyId = rolloverPolicyByResource.get(resId);
+            if (policyId != null && rolloverPolicies.containsKey(policyId)) {
+                UsageGrantRolloverPolicy pol = rolloverPolicies.get(policyId);
+                rolloverAllowed = pol.IsRolloverAllowed == true;
+                allowExpiry = pol.ShouldAllowRolloverExpiry == true;
+                maxRollover = pol.MaximumRolloverCount; // null = uncapped
+            }
+
+            // Earliest month to show: the entitlement window start, or the first consumption month.
+            Integer minKey = currentKey;
+            if (windowStart != null && windowStart < minKey) {
+                minKey = windowStart;
+            }
+            for (Integer k : consumed.keySet()) {
+                if (k < minKey) {
+                    minKey = k;
+                }
+            }
+
+            MonthlyUsageResourceWrapper rw = new MonthlyUsageResourceWrapper();
+            rw.resourceId = resId;
+            rw.resourceName = resourceNames.containsKey(resId)
+                ? resourceNames.get(resId)
+                : 'Usage Resource';
+            rw.productName = productByResource.get(resId);
+            rw.uomName = uomByResource.get(resId);
+            rw.months = new List<MonthlyUsageRow>();
+
+            // Walk month-by-month from the earliest activity through the current month.
+            // Carry-over is a queue of grant "vintages" (oldest first). Each month: issue the new
+            // grant, total the queue for "available", consume oldest-first, then roll the survivors
+            // forward — applying the rollover policy's cap/expiry as batches age.
+            List<GrantBatch> carried = new List<GrantBatch>();
+            Integer y = minKey / 100;
+            Integer m = Math.mod(minKey, 100);
+            while (y < currentYear || (y == currentYear && m <= currentMonth)) {
+                Integer key = (y * 100) + m;
+                // Grant applies for every month inside the entitlement's active window. When the
+                // window is unknown (no buckets), the monthly grant applies from minKey onward.
+                Boolean inWindow = (windowStart == null || key >= windowStart)
+                    && (windowEnd == null || key <= windowEnd);
+                Decimal grant = inWindow ? monthlyGrant : 0;
+                if (grant > 0) {
+                    carried.add(new GrantBatch(grant));
+                }
+                Decimal cons = consumed.containsKey(key) ? consumed.get(key) : 0;
+
+                // Total available this month = carried-in unused units + this month's grant.
+                Decimal available = 0;
+                for (GrantBatch gb : carried) {
+                    available += gb.units;
+                }
+
+                // Consume oldest units first.
+                Decimal toConsume = cons;
+                for (GrantBatch gb : carried) {
+                    if (toConsume <= 0) {
+                        break;
+                    }
+                    Decimal take = gb.units < toConsume ? gb.units : toConsume;
+                    gb.units -= take;
+                    toConsume -= take;
+                }
+
+                Decimal carriedOver = 0;
+                for (GrantBatch gb : carried) {
+                    carriedOver += gb.units;
+                }
+
+                MonthlyUsageRow row = new MonthlyUsageRow();
+                row.monthKey = key;
+                row.monthLabel = MONTH_ABBR[m - 1] + ' ' + String.valueOf(y);
+                row.available = available;
+                row.consumed = cons;
+                row.carriedOver = carriedOver;
+                rw.months.add(row);
+
+                // Roll the survivors into next month, applying the rollover policy.
+                List<GrantBatch> next = new List<GrantBatch>();
+                if (rolloverAllowed) {
+                    for (GrantBatch gb : carried) {
+                        if (gb.units <= 0) {
+                            continue; // fully consumed — nothing to roll
+                        }
+                        Integer newRollovers = gb.rollovers + 1;
+                        // Expire the vintage once it would exceed the max number of rollovers.
+                        if (allowExpiry && maxRollover != null && newRollovers > maxRollover) {
+                            continue;
+                        }
+                        gb.rollovers = newRollovers;
+                        next.add(gb);
+                    }
+                }
+                carried = next;
+
+                m += 1;
+                if (m > 12) {
+                    m = 1;
+                    y += 1;
+                }
+            }
+
+            result.add(rw);
+        }
+
+        return result;
+    }
 }

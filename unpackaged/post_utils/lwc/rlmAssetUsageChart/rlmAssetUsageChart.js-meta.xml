@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>66.0</apiVersion>
+    <isExposed>true</isExposed>
+    <targets>
+        <target>lightning__RecordPage</target>
+    </targets>
+    <targetConfigs>
+        <targetConfig targets="lightning__RecordPage">
+            <objects>
+                <object>Asset</object>
+            </objects>
+        </targetConfig>
+    </targetConfigs>
+    <masterLabel>RLM Asset Usage Chart</masterLabel>
+    <description>Grouped bar chart of total available versus effective consumed usage by month for a Revenue Cloud Asset, one chart per Usage Resource. Companion visualization to RLM Asset Monthly Usage.</description>
+</LightningComponentBundle>

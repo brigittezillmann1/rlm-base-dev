@@ -441,6 +441,20 @@ private class RLM_UsageUploaderControllerTest {
         System.assertEquals(0, grants.size(), 'Asset without entitlements should return empty list');
     }
 
+    // ─── getMonthlyUsageForAsset Tests ────────────────────────────────
+
+    @IsTest
+    static void testGetMonthlyUsageForAsset_NoData() {
+        Asset ast = getTestAsset();
+
+        Test.startTest();
+        List<RLM_UsageUploaderController.MonthlyUsageResourceWrapper> monthly =
+            RLM_UsageUploaderController.getMonthlyUsageForAsset(ast.Id);
+        Test.stopTest();
+
+        System.assertEquals(0, monthly.size(), 'Asset without entitlements should return empty list');
+    }
+
     // ─── Wrapper Class Coverage ───────────────────────────────────────
 
     @IsTest
@@ -494,11 +508,31 @@ private class RLM_UsageUploaderControllerTest {
         urw.unitOfMeasureClassId = null;
         urw.availableUoms = new List<RLM_UsageUploaderController.UomOption>{ uOpt };
 
+        // Exercise MonthlyUsageRow
+        RLM_UsageUploaderController.MonthlyUsageRow mur = new RLM_UsageUploaderController.MonthlyUsageRow();
+        mur.monthLabel = 'Jan 2026';
+        mur.monthKey = 202601;
+        mur.available = 1000;
+        mur.consumed = 300;
+        mur.carriedOver = 700;
+
+        // Exercise MonthlyUsageResourceWrapper
+        RLM_UsageUploaderController.MonthlyUsageResourceWrapper murw = new RLM_UsageUploaderController.MonthlyUsageResourceWrapper();
+        murw.resourceId = null;
+        murw.resourceName = 'API Calls';
+        murw.productName = 'AI Platform';
+        murw.uomName = 'Calls';
+        murw.months = new List<RLM_UsageUploaderController.MonthlyUsageRow>{ mur };
+
         // Verify no exceptions thrown
         System.assertNotEquals(null, rw.rateCardName);
         System.assertNotEquals(null, gw.entitlementName);
         System.assertEquals('Gigabyte', uOpt.uomName);
         System.assertEquals(1, urw.availableUoms.size());
+        System.assertEquals(1000, murw.months[0].available);
+        System.assertEquals(300, murw.months[0].consumed);
+        System.assertEquals(700, murw.months[0].carriedOver);
+        System.assertEquals('AI Platform', murw.productName);
     }
 
     @IsTest
