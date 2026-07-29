@@ -1,0 +1,77 @@
+<template>
+    <lightning-card title="Monthly Usage" icon-name="standard:metrics">
+        <div class="slds-p-horizontal_medium slds-p-bottom_medium">
+            <!-- Loading -->
+            <template if:true={isLoading}>
+                <div class="slds-is-relative slds-p-vertical_large">
+                    <lightning-spinner alternative-text="Loading monthly usage" size="small"></lightning-spinner>
+                </div>
+            </template>
+
+            <!-- Empty state -->
+            <template if:true={noData}>
+                <p class="slds-text-color_weak slds-p-vertical_small">
+                    No monthly usage found for this asset.
+                </p>
+            </template>
+
+            <!-- Data -->
+            <template if:true={hasData}>
+                <template for:each={resources} for:item="resource">
+                    <div key={resource.id} class="slds-m-bottom_large">
+                        <!-- Resource + entitled product header -->
+                        <div class="slds-m-bottom_x-small">
+                            <span class="slds-text-title_bold">{resource.name}</span>
+                            <span class="slds-text-color_weak slds-m-left_xx-small">{resource.uomLabel}</span>
+                        </div>
+                        <template if:true={resource.hasProduct}>
+                            <div class="slds-text-body_small slds-text-color_weak slds-m-bottom_x-small">
+                                Entitled product: <span class="slds-text-color_default">{resource.productName}</span>
+                            </div>
+                        </template>
+
+                        <table
+                            class="slds-table slds-table_cell-buffer slds-table_bordered slds-table_fixed-layout"
+                            aria-label="Monthly usage for {resource.name}"
+                        >
+                            <thead>
+                                <tr class="slds-line-height_reset">
+                                    <th class="slds-text-title_caps" scope="col">
+                                        <div class="slds-truncate" title="Month">Month</div>
+                                    </th>
+                                    <th class="slds-text-title_caps slds-text-align_right" scope="col">
+                                        <div class="slds-truncate" title="Total Available">Total Available</div>
+                                    </th>
+                                    <th class="slds-text-title_caps slds-text-align_right" scope="col">
+                                        <div class="slds-truncate" title="Effective Consumed">Effective Consumed</div>
+                                    </th>
+                                    <th class="slds-text-title_caps slds-text-align_right" scope="col">
+                                        <div class="slds-truncate" title="Carried Over">Carried Over</div>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template for:each={resource.months} for:item="month">
+                                    <tr key={month.key} class="slds-hint-parent">
+                                        <th scope="row" data-label="Month">
+                                            <div class="slds-truncate" title={month.monthLabel}>{month.monthLabel}</div>
+                                        </th>
+                                        <td class="slds-text-align_right" data-label="Total Available">
+                                            <div class="slds-truncate" title={month.available}>{month.available}</div>
+                                        </td>
+                                        <td class="slds-text-align_right" data-label="Effective Consumed">
+                                            <div class="slds-truncate" title={month.consumed}>{month.consumed}</div>
+                                        </td>
+                                        <td class="slds-text-align_right" data-label="Carried Over">
+                                            <div class="slds-truncate" title={month.carriedOver}>{month.carriedOver}</div>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </template>
+            </template>
+        </div>
+    </lightning-card>
+</template>

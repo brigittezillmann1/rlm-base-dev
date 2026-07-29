@@ -1228,6 +1228,12 @@
                 <identifier>c_rlmUsageDataTable_asset_ubpi</identifier>
             </componentInstance>
         </itemInstances>
+        <itemInstances>
+            <componentInstance>
+                <componentName>rlmAssetMonthlyUsage</componentName>
+                <identifier>c_rlmAssetMonthlyUsage_asset</identifier>
+            </componentInstance>
+        </itemInstances>
         <name>Facet-usage-data-content</name>
         <type>Facet</type>
     </flexiPageRegions>

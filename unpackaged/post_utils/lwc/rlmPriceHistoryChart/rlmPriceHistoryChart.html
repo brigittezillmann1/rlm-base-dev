@@ -1,0 +1,89 @@
+<template>
+    <lightning-card title="List Price History" icon-name="standard:pricebook">
+        <div class="slds-p-horizontal_medium slds-p-bottom_medium">
+            <!-- Loading -->
+            <template if:true={isLoading}>
+                <div class="slds-is-relative slds-p-vertical_large">
+                    <lightning-spinner alternative-text="Loading price history" size="small"></lightning-spinner>
+                </div>
+            </template>
+
+            <!-- Empty state -->
+            <template if:true={noData}>
+                <p class="slds-text-color_weak slds-p-vertical_small">
+                    No price history found for this entry. Enable field-history tracking on Price
+                    Book Entry to chart list-price changes over time.
+                </p>
+            </template>
+
+            <!-- Data -->
+            <template if:true={hasData}>
+                <!-- Header: product / pricebook + current price -->
+                <div class="slds-grid slds-grid_align-spread slds-grid_vertical-align-center slds-m-bottom_small">
+                    <div>
+                        <span class="slds-text-title_bold">{productName}</span>
+                        <div class="slds-text-body_small slds-text-color_weak">{pricebookName}</div>
+                    </div>
+                    <div class="slds-text-align_right">
+                        <div class="slds-text-title slds-text-color_weak">Current</div>
+                        <div class="slds-text-heading_medium">{currentPriceLabel}</div>
+                    </div>
+                </div>
+
+                <!-- Step-line chart -->
+                <div class="chart-scroll">
+                    <svg
+                        class="chart"
+                        width={chart.svgWidth}
+                        height={chart.svgHeight}
+                        viewBox={chart.viewBox}
+                        role="img"
+                        aria-label={chart.ariaLabel}
+                    >
+                        <!-- Gridlines + y-axis labels -->
+                        <template for:each={chart.gridlines} for:item="line">
+                            <g key={line.key}>
+                                <line class="gridline" x1={line.x1} y1={line.y} x2={line.x2} y2={line.y}></line>
+                                <text class="axis-label" x={line.labelX} y={line.labelY} text-anchor="end">
+                                    {line.label}
+                                </text>
+                            </g>
+                        </template>
+
+                        <!-- Area under the step line -->
+                        <path class="price-area" d={chart.area}></path>
+
+                        <!-- Step line -->
+                        <path class="price-line" d={chart.line}></path>
+
+                        <!-- Markers -->
+                        <template for:each={chart.markers} for:item="marker">
+                            <circle key={marker.key} class="price-marker" cx={marker.cx} cy={marker.cy} r="4">
+                                <title>{marker.title}</title>
+                            </circle>
+                        </template>
+
+                        <!-- Value labels above markers -->
+                        <template for:each={chart.valueLabels} for:item="v">
+                            <text key={v.key} class="value-label" x={v.x} y={v.y} text-anchor="middle">
+                                {v.text}
+                            </text>
+                        </template>
+
+                        <!-- Date labels below baseline -->
+                        <template for:each={chart.dateLabels} for:item="d">
+                            <text key={d.key} class="axis-label" x={d.x} y={d.y} text-anchor="middle">
+                                {d.text}
+                            </text>
+                        </template>
+
+                        <!-- "Now" marker at the right edge -->
+                        <text class="axis-label axis-label_now" x={chart.nowX} y={chart.nowY} text-anchor="end">
+                            Now
+                        </text>
+                    </svg>
+                </div>
+            </template>
+        </div>
+    </lightning-card>
+</template>
