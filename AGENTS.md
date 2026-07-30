@@ -282,6 +282,7 @@ that topic.
 | Create/modify SFDMU data plans | `.cursor/skills/sfdmu-data-plans/SKILL.md` |
 | Maintain the In-App Learning framework (`inapp` integration) | `.cursor/skills/inapp-framework/SKILL.md` |
 | Understand RLM objects/relationships | `.cursor/skills/revenue-cloud-data-model/SKILL.md` |
+| Set up a usage-based product (avoid the 1970 accumulation-period bug) | `.cursor/skills/revenue-cloud-data-model/domains/usage.md` |
 | Validate / refresh / certify the ERD against orgs and Core source | `.cursor/skills/schema-validation/SKILL.md` |
 | Consume PMOS content from Foundations (or vice versa) via cross-repo skill manifest | `.cursor/skills/pmos-integration/SKILL.md` |
 | Use Revenue Cloud REST APIs | `.cursor/skills/rlm-business-apis/SKILL.md` |
