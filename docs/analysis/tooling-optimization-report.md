@@ -8,9 +8,9 @@
 
 - Overall status: **PASS**
 - Required files: **6/6** present
-- Skills inventoried: **52** Markdown files under `.cursor/skills/`
+- Skills inventoried: **54** Markdown files under `.cursor/skills/`
 - Cursor rules inventoried: **11** `.mdc` files under `.cursor/rules/`
-- AGENTS.md skill references: **42** checked, **0** missing
+- AGENTS.md skill references: **45** checked, **0** missing
 - Generated CCI references: **3/3** present
 - Errors: **0**
 - Warnings: **0**
@@ -41,6 +41,8 @@
 - `.cursor/skills/document-generation/dynamic-images.md`
 - `.cursor/skills/document-generation/extract-engine-reference.md`
 - `.cursor/skills/expression-sets/SKILL.md`
+- `.cursor/skills/expression-sets/authoring-and-overlays.md`
+- `.cursor/skills/expression-sets/metadata-vs-connect.md`
 - `.cursor/skills/inapp-framework/SKILL.md`
 - `.cursor/skills/odt-authoring/SKILL.md`
 - `.cursor/skills/pde-org-build/SKILL.md`
@@ -109,6 +111,8 @@
 - ✅ `.cursor/skills/document-generation/dynamic-images.md`
 - ✅ `.cursor/skills/document-generation/extract-engine-reference.md`
 - ✅ `.cursor/skills/expression-sets/SKILL.md`
+- ✅ `.cursor/skills/expression-sets/authoring-and-overlays.md`
+- ✅ `.cursor/skills/expression-sets/metadata-vs-connect.md`
 - ✅ `.cursor/skills/inapp-framework/SKILL.md`
 - ✅ `.cursor/skills/odt-authoring/SKILL.md`
 - ✅ `.cursor/skills/pde-org-build/SKILL.md`
@@ -124,6 +128,7 @@
 - ✅ `.cursor/skills/repo-integration/ux-assembly-retrieve.md`
 - ✅ `.cursor/skills/revenue-cloud-data-model/SKILL.md`
 - ✅ `.cursor/skills/revenue-cloud-data-model/cross-domain-relationships.md`
+- ✅ `.cursor/skills/revenue-cloud-data-model/domains/usage.md`
 - ✅ `.cursor/skills/revenue-cloud-docs/SKILL.md`
 - ✅ `.cursor/skills/rlm-business-apis/SKILL.md`
 - ✅ `.cursor/skills/robot-testing/SKILL.md`
